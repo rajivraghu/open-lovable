@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createGroq } from '@ai-sdk/groq';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { streamText } from 'ai';
 import type { SandboxState } from '@/types/sandbox';
 import { selectFilesForEdit, getFileContents, formatFilesForAI } from '@/lib/context-selector';
@@ -21,6 +22,10 @@ const anthropic = createAnthropic({
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+});
+
+const openrouter = createOpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY,
 });
 
 // Helper function to analyze user preferences from conversation history
@@ -1149,9 +1154,21 @@ CRITICAL: When files are provided in the context:
         // Determine which provider to use based on model
         const isAnthropic = model.startsWith('anthropic/');
         const isOpenAI = model.startsWith('openai/gpt-5');
-        const modelProvider = isAnthropic ? anthropic : (isOpenAI ? openai : groq);
-        const actualModel = isAnthropic ? model.replace('anthropic/', '') : 
-                           (model === 'openai/gpt-5') ? 'gpt-5' : model;
+        const isOpenRouter = model.startsWith('openrouter/');
+        const modelProvider = isAnthropic
+          ? anthropic
+          : isOpenAI
+          ? openai
+          : isOpenRouter
+          ? openrouter
+          : groq;
+        const actualModel = isAnthropic
+          ? model.replace('anthropic/', '')
+          : isOpenAI
+          ? 'gpt-5'
+          : isOpenRouter
+          ? 'qwen/qwen3-coder'
+          : model;
         
         // Make streaming API call with appropriate provider
         const streamOptions: any = {

@@ -2093,20 +2093,6 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       setGenerationProgress(prev => ({ ...prev, isGenerating: false }));
     }
     
-    if (!url.match(/^https?:\/\//i)) {
-      url = 'https://' + url;
-    }
-    
-    setUrlStatus([`Using: ${url}`, 'Starting to scrape...']);
-    
-    setUrlOverlayVisible(false);
-    
-    // Remove protocol for cleaner display
-    const cleanUrl = url.replace(/^https?:\/\//i, '');
-    addChatMessage(`Starting to clone ${cleanUrl}...`, 'system');
-    
-    // Capture screenshot immediately and switch to preview tab
-    captureUrlScreenshot(url);
     
     try {
       addChatMessage('Scraping website content...', 'system');

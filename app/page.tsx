@@ -73,6 +73,7 @@ export default function AISandboxPage() {
   const [homeScreenFading, setHomeScreenFading] = useState(false);
   const [homeUrlInput, setHomeUrlInput] = useState('');
   const [homeContextInput, setHomeContextInput] = useState('');
+  const [homeScratchPrompt, setHomeScratchPrompt] = useState('');
   const [activeTab, setActiveTab] = useState<'generation' | 'preview'>('preview');
   const [showStyleSelector, setShowStyleSelector] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
@@ -1983,6 +1984,114 @@ Tip: I automatically detect and install npm packages from your code imports (lik
       setUrlStatus(prev => [...prev, 'Please enter a URL']);
       return;
     }
+  };
+
+  const handleGenerateFromScratch = async () => {
+    const prompt = homeScratchPrompt.trim();
+    if (!prompt) return;
+
+    setHomeScreenFading(true);
+    setTimeout(() => {
+      setShowHomeScreen(false);
+      setHomeScreenFading(false);
+    }, 500);
+
+    addChatMessage(`Generating a new website: "${prompt}"`, 'system');
+
+    let sandboxPromise: Promise<void> | null = null;
+    if (!sandboxData) {
+      addChatMessage('Creating sandbox while I plan your app...', 'system');
+      sandboxPromise = createSandbox(true);
+    }
+
+    try {
+      setGenerationProgress(prev => ({
+        ...prev,
+        isGenerating: true,
+        status: 'Initializing AI for scratch generation...',
+        isEdit: false,
+        files: [],
+      }));
+      setActiveTab('generation');
+
+      const aiResponse = await fetch('/api/generate-ai-code-stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `Generate a new website based on the following description: ${prompt}`,
+          model: aiModel,
+          generationType: 'scratch',
+          context: {
+            sandboxId: sandboxData?.id,
+          }
+        })
+      });
+
+      if (!aiResponse.ok || !aiResponse.body) {
+        throw new Error('Failed to generate code from scratch');
+      }
+
+      const reader = aiResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let generatedCode = '';
+      let explanation = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === 'status') {
+                  setGenerationProgress(prev => ({ ...prev, status: data.message }));
+                } else if (data.type === 'stream' && data.raw) {
+                  setGenerationProgress(prev => ({
+                    ...prev,
+                    streamedCode: prev.streamedCode + data.text,
+                  }));
+                } else if (data.type === 'complete') {
+                  generatedCode = data.generatedCode;
+                  explanation = data.explanation;
+                }
+              } catch (e) {
+                console.error('Error parsing streaming data:', e);
+              }
+            }
+          }
+        }
+      }
+
+      setGenerationProgress(prev => ({
+        ...prev,
+        isGenerating: false,
+        status: 'Generation complete!',
+      }));
+
+      if (generatedCode) {
+        addChatMessage(explanation || 'Code generated from scratch!', 'ai', {
+          generatedCode: generatedCode
+        });
+        setPromptInput(generatedCode);
+
+        if (sandboxPromise) {
+          await sandboxPromise;
+        }
+
+        if (sandboxData) {
+          await applyGeneratedCode(generatedCode, false);
+        }
+      }
+    } catch (error: any) {
+      addChatMessage(`Failed to generate from scratch: ${error.message}`, 'system');
+      setGenerationProgress(prev => ({ ...prev, isGenerating: false }));
+    }
     
     if (!url.match(/^https?:\/\//i)) {
       url = 'https://' + url;
@@ -2857,6 +2966,33 @@ Focus on the key sections and content, making it clean and modern.`;
                       <path d="M20 4v7a4 4 0 0 1-4 4H4"></path>
                     </svg>
                   </button>
+                </div>
+
+                <div className="my-4 flex items-center">
+                  <div className="flex-grow border-t border-gray-300"></div>
+                  <span className="flex-shrink mx-4 text-gray-500 text-sm">OR</span>
+                  <div className="flex-grow border-t border-gray-300"></div>
+                </div>
+
+                <div>
+                  <Textarea
+                    value={homeScratchPrompt}
+                    onChange={(e) => setHomeScratchPrompt(e.target.value)}
+                    placeholder="Describe the website you want to build... e.g., 'A portfolio website for a photographer'"
+                    className="h-[3.25rem] w-full resize-none focus-visible:outline-none focus-visible:ring-orange-500 focus-visible:ring-2 rounded-[18px] text-sm text-[#36322F] px-4 border-[.75px] border-border bg-white"
+                    style={{
+                      boxShadow: '0 0 0 1px #e3e1de66, 0 1px 2px #5f4a2e14, 0 4px 6px #5f4a2e0a, 0 40px 40px -24px #684b2514',
+                      filter: 'drop-shadow(rgba(249, 224, 184, 0.3) -0.731317px -0.731317px 35.6517px)'
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    disabled={!homeScratchPrompt.trim()}
+                    className="mt-2 w-full"
+                    onClick={handleGenerateFromScratch}
+                  >
+                    Generate from Scratch
+                  </Button>
                 </div>
                   
                   {/* Style Selector - Slides out when valid domain is entered */}

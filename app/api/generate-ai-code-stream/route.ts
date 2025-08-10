@@ -74,7 +74,7 @@ declare global {
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, model = 'openai/gpt-oss-20b', context, isEdit = false } = await request.json();
+    const { prompt, model = 'openai/gpt-oss-20b', context, isEdit = false, generationType } = await request.json();
     
     console.log('[generate-ai-code-stream] Received request:');
     console.log('[generate-ai-code-stream] - prompt:', prompt);
@@ -151,6 +151,62 @@ export async function POST(request: NextRequest) {
     // Start processing in background
     (async () => {
       try {
+        if (generationType === 'scratch') {
+          console.log('[generate-ai-code-stream] Generating from scratch...');
+          await sendProgress({ type: 'status', message: 'Generating website from scratch...' });
+
+          const systemPrompt = `You are an expert React developer. Your task is to generate a complete, modern React application based on the user's description.
+
+**CRITICAL REQUIREMENTS:**
+1.  **Complete Application:** Generate all necessary files, including \`src/index.css\`, \`src/App.jsx\`, and all component files.
+2.  **Vite + React:** The project should be a standard Vite React application.
+3.  **Tailwind CSS:** Use Tailwind CSS for all styling. Do not use any other styling methods (e.g., custom CSS files, CSS-in-JS).
+4.  **Component-Based:** Break down the UI into reusable components.
+5.  **No Placeholders:** Use real content based on the prompt, not "lorem ipsum".
+6.  **File Format:** Output each file in the specified XML format: \`<file path="path/to/file.jsx">...content...</file>\`
+
+The user wants a website for: "${prompt}"
+
+Generate the full application now.`;
+
+          const isAnthropic = model.startsWith('anthropic/');
+          const isOpenAI = model.startsWith('openai/gpt-5');
+          const isOpenRouter = model.startsWith('openrouter/');
+          const modelProvider = isAnthropic
+            ? anthropic
+            : isOpenAI
+            ? openai
+            : isOpenRouter
+            ? openrouter
+            : groq;
+          const actualModel = isAnthropic
+            ? model.replace('anthropic/', '')
+            : isOpenAI
+            ? 'gpt-5'
+            : isOpenRouter
+            ? 'qwen/qwen3-coder'
+            : model;
+
+          const result = await streamText({
+            model: modelProvider(actualModel),
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: prompt }
+            ],
+            maxTokens: 8192,
+          });
+
+          let generatedCode = '';
+          for await (const textPart of result.textStream) {
+            generatedCode += textPart;
+            await sendProgress({ type: 'stream', text: textPart, raw: true });
+          }
+
+          await sendProgress({ type: 'complete', generatedCode, explanation: 'Code generated from scratch.' });
+          await writer.close();
+          return;
+        }
+
         // Send initial status
         await sendProgress({ type: 'status', message: 'Initializing AI...' });
         

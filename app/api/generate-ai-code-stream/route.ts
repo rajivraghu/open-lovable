@@ -141,13 +141,34 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
-    
+    let writerClosed = false;
+
     // Function to send progress updates
     const sendProgress = async (data: any) => {
-      const message = `data: ${JSON.stringify(data)}\n\n`;
-      await writer.write(encoder.encode(message));
+      if (writerClosed) return;
+      try {
+        const message = `data: ${JSON.stringify(data)}\n\n`;
+        await writer.write(encoder.encode(message));
+      } catch (error) {
+        console.error('[generate-ai-code-stream] Error writing to stream:', error);
+        // Mark writer as closed if write fails
+        writerClosed = true;
+      }
     };
-    
+
+    // Function to safely close writer
+    const safeCloseWriter = async () => {
+      if (!writerClosed) {
+        writerClosed = true;
+        try {
+          await writer.close();
+        } catch (error) {
+          console.error('[generate-ai-code-stream] Error closing writer:', error);
+          // Writer is already marked as closed, so we can ignore this error
+        }
+      }
+    };
+
     // Start processing in background
     (async () => {
       try {
@@ -203,7 +224,7 @@ Generate the full application now.`;
           }
 
           await sendProgress({ type: 'complete', generatedCode, explanation: 'Code generated from scratch.' });
-          await writer.close();
+          await safeCloseWriter();
           return;
         }
 
@@ -1777,7 +1798,7 @@ Provide the complete file content without any truncation. Include all necessary 
           });
         }
       } finally {
-        await writer.close();
+        await safeCloseWriter();
       }
     })();
     

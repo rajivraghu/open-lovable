@@ -23,53 +23,112 @@ export async function GET() {
 import os
 import json
 
-def get_files_content(directory='/home/user/app', extensions=['.jsx', '.js', '.tsx', '.ts', '.css', '.json']):
-    files_content = {}
-    
-    for root, dirs, files in os.walk(directory):
-        # Skip node_modules and other unwanted directories
-        dirs[:] = [d for d in dirs if d not in ['node_modules', '.git', 'dist', 'build']]
-        
-        for file in files:
-            if any(file.endswith(ext) for ext in extensions):
-                file_path = os.path.join(root, file)
-                relative_path = os.path.relpath(file_path, '/home/user/app')
-                
-                try:
-                    with open(file_path, 'r') as f:
-                        content = f.read()
-                        # Only include files under 10KB to avoid huge responses
-                        if len(content) < 10000:
-                            files_content[relative_path] = content
-                except:
-                    pass
-    
-    return files_content
+# Change to the app directory
+os.chdir('/home/user/app')
 
-# Get the files
-files = get_files_content()
+# Get files with content
+files_content = {}
 
-# Also get the directory structure
+# Define the files we want to read
+target_files = [
+    'package.json',
+    'vite.config.js',
+    'tailwind.config.js',
+    'postcss.config.js',
+    'index.html',
+    'src/main.jsx',
+    'src/App.jsx',
+    'src/index.css'
+]
+
+# Read each target file
+for file_path in target_files:
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                files_content[file_path] = content
+                print(f"Read {file_path}: {len(content)} chars")
+        except Exception as e:
+            print(f"Error reading {file_path}: {e}")
+
+# Also scan for any additional JS/JSX/CSS files
+for root, dirs, files in os.walk('.'):
+    # Skip node_modules and other unwanted directories
+    dirs[:] = [d for d in dirs if d not in ['node_modules', '.git', 'dist', 'build']]
+
+    for file in files:
+        if file.endswith(('.jsx', '.js', '.tsx', '.ts', '.css', '.json', '.html')):
+            file_path = os.path.join(root, file)
+            relative_path = os.path.relpath(file_path, '.')
+
+            # Skip if we already have this file
+            if relative_path in files_content:
+                continue
+
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # Only include files under 10KB to avoid huge responses
+                    if len(content) < 10000:
+                        files_content[relative_path] = content
+                        print(f"Found additional file {relative_path}: {len(content)} chars")
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
+
+# Get directory structure
 structure = []
-for root, dirs, files in os.walk('/home/user/app'):
-    level = root.replace('/home/user/app', '').count(os.sep)
+for root, dirs, files in os.walk('.'):
+    # Skip node_modules for structure display
+    if 'node_modules' in root:
+        continue
+
+    level = root.replace('.', '').count(os.sep)
     indent = ' ' * 2 * level
-    structure.append(f"{indent}{os.path.basename(root)}/")
+    basename = os.path.basename(root) if root != '.' else 'app'
+    structure.append(f"{indent}{basename}/")
+
     sub_indent = ' ' * 2 * (level + 1)
     for file in files:
-        if not any(skip in root for skip in ['node_modules', '.git', 'dist', 'build']):
-            structure.append(f"{sub_indent}{file}")
+        structure.append(f"{sub_indent}{file}")
 
 result = {
-    'files': files,
+    'files': files_content,
     'structure': '\\n'.join(structure[:50])  # Limit structure to 50 lines
 }
 
+print("=== FINAL RESULT ===")
 print(json.dumps(result))
     `);
 
     const output = result.logs.stdout.join('');
-    const parsedResult = JSON.parse(output);
+    console.log('[get-sandbox-files] Raw output:', output);
+
+    // Find the JSON output after "=== FINAL RESULT ==="
+    const finalResultIndex = output.indexOf('=== FINAL RESULT ===');
+    if (finalResultIndex === -1) {
+      console.error('[get-sandbox-files] No final result marker found in:', output);
+      throw new Error('No final result marker found in sandbox output');
+    }
+
+    const jsonPart = output.substring(finalResultIndex + '=== FINAL RESULT ==='.length).trim();
+    const lines = jsonPart.split('\n');
+    let jsonLine = '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('{')) {
+        jsonLine = trimmed;
+        break;
+      }
+    }
+
+    if (!jsonLine) {
+      console.error('[get-sandbox-files] No JSON output found after final result marker');
+      throw new Error('No valid JSON output from sandbox');
+    }
+
+    console.log('[get-sandbox-files] Parsing JSON:', jsonLine.substring(0, 200) + '...');
+    const parsedResult = JSON.parse(jsonLine);
     
     // Build enhanced file manifest
     const fileManifest: FileManifest = {
